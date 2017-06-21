@@ -75,14 +75,14 @@ headers = {
 # Stream timezone
 #TODO let user decide timezone
 #stream_tz = pytz.timezone("America/New_York")
-stream_tz = pytz.timezone("America/Vancouver")
+stream_tz = "America/Vancouver"
 def convert_from_utc(utc_dt):
     """
     Convert a datetime from UTC to another timezone.
     Keyword arguments:
     utc_dt -- a datetime in UTC
     """
-    return stream_tz.normalize(utc_dt.replace(tzinfo=stream_tz).astimezone(pytz.utc))
+    return utc_dt.astimezone(pytz.timezone(stream_tz)) 
 
 # Regex for matching chat messages
 CHAT_MSG = re.compile(r"^.*:\w+!\w+@\w+\.tmi\.twitch\.tv PRIVMSG #\w+ :")
@@ -116,9 +116,10 @@ while True:
                 chat(s, "{} is currently offline.".format(CHAN))
             else:
                 starttime = iso8601.parse_date(j["stream"]["created_at"])
+                print(starttime)
                 localtime = convert_from_utc(starttime);
                 # Send a nicely formatted start time to the chat. TODO user-defined timezone
-                chat(s, "This stream began at {}:{} (Pacific).".format(localtime.time().hour - 5, str(localtime.time().minute).zfill(2)))
+                chat(s, "This stream began at {}:{} (Pacific).".format(localtime.time().hour, str(localtime.time().minute).zfill(2)))
 
         # Check for bot commands and response accordingly in the chat.
         for comm in list(cfg.COMMANDS.keys()):
