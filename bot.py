@@ -1,6 +1,7 @@
 #!/usr/bin/python
 
 import cfg
+import sys
 import socket
 import re
 import time
@@ -10,7 +11,21 @@ import datetime
 import pytz
 
 
-# Get 
+# Get channel name from command line, or from cfg.py
+if len(sys.argv) > 1:
+    CHAN = sys.argv[1]
+else:
+    CHAN = cfg.CHAN
+
+# Read sensitive account info from external file
+# accountinfo.txt should have username on the first line and OAuth string on the second
+with open("accountinfo.txt") as f:
+    data = f.read()
+f.closed
+lines = data.split("\n")
+NICK = lines[0]
+PASS = lines[1]
+
 
 # Chat functions
 def chat(sock, msg) :
@@ -20,7 +35,7 @@ def chat(sock, msg) :
     sock -- the socket over which to send the message
     msg  -- the message to be sent
     """
-    sock.send("PRIVMSG #{} :{}\r\n".format(cfg.CHAN.lower(), msg).encode("utf-8"))
+    sock.send("PRIVMSG #{} :{}\r\n".format(CHAN.lower(), msg).encode("utf-8"))
 
 def ban(sock, user):
     """
@@ -45,16 +60,15 @@ def timeout(sock, user, secs=600):
 # Socket stuff, join the Twitch IRC
 s = socket.socket()
 s.connect((cfg.HOST, cfg.PORT))
-s.send("PASS {}\r\n".format(cfg.PASS).encode("utf-8"))
-s.send("NICK {}\r\n".format(cfg.NICK).encode("utf-8"))
-s.send("JOIN #{}\r\n".format(cfg.CHAN.lower()).encode("utf-8"))
+s.send("PASS {}\r\n".format(PASS).encode("utf-8"))
+s.send("NICK {}\r\n".format(NICK).encode("utf-8"))
+s.send("JOIN #{}\r\n".format(CHAN.lower()).encode("utf-8"))
 
 # Set up info for making HTTP requests
-URL_CHANNEL = "https://api.twitch.tv/kraken/channels/{}".format(cfg.CHAN.lower())
-URL_STREAM = "https://api.twitch.tv/kraken/streams/{}".format(cfg.CHAN.lower())
+URL_CHANNEL = "https://api.twitch.tv/kraken/channels/{}".format(CHAN.lower())
+URL_STREAM = "https://api.twitch.tv/kraken/streams/{}".format(CHAN.lower())
 headers = {
         "Client-ID": "asadyq6bfn2skqs8gmrof5wpesq7qi", 
-        "Authorization": cfg.PASS2,
         "Accept": "application/wnd.twitchtv.v5+json"
         }
 
@@ -83,33 +97,23 @@ while True:
         got_tags = True
     elif not got_tags:
         s.send("CAP REQ :twitch.tv/tags\r\n".encode("utf-8"))
-    #if ":tmi.twitch.tv CAP * ACK :twitch.tv/commands" in response:
-    #    got_commands = True
-    #elif not got_commands:
-    #    s.send("CAP REQ :twitch.tv/commands\r\n".encode("utf-8"))
-
 
     # Keep the bot signed in
     if response == "PING :tmi.twitch.tv\r\n":
         s.send("PONG :tmi.twitch.tv\r\n".encode("utf-8"))
     else:
-        # Request Twitch tag information
-        #if not got_commands:
-        #    s.send("CAP REQ :twitch.tv/commands\r\n".encode("utf-8"))
-        #if not got_tags:
-        #    s.send("CAP REQ :twitch.tv/tags\r\n".encode("utf-8"))
-
         # Get username and message strings
         username = re.search(r"\w+", response).group(0)
         message = CHAT_MSG.sub("", response)
 
+        # Special command !uptime
         if re.match(r"!uptime", message):
             # Request stream information from Kraken
             r = requests.get(URL_STREAM, headers=headers)
             j = r.json()
             # Check if there is a live stream
             if j['stream'] is None:
-                chat(s, "{} is currently offline.".format(cfg.CHAN))
+                chat(s, "{} is currently offline.".format(CHAN))
             else:
                 starttime = iso8601.parse_date(j["stream"]["created_at"])
                 localtime = convert_from_utc(starttime);
@@ -121,5 +125,7 @@ while True:
             if re.match(comm, message):
                 chat(s, cfg.COMMANDS[comm])
                 break
+
+    # Slow your roll, we don't want to get banned
     time.sleep(1 / cfg.RATE)
 
