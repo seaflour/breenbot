@@ -9,15 +9,17 @@ import requests
 import iso8601
 import datetime
 import pytz
+import signal
 
 
-# Get channel name from command line, or from cfg.py
-if len(sys.argv) > 1:
-    CHAN = sys.argv[1]
-else:
-    CHAN = cfg.CHAN
+# SIGINT handler for graceful exit
+def sigint_handler(signal, frame):
+    print("\nFinished.")
+    sys.exit(0)
+signal.signal(signal.SIGINT, sigint_handler)
 
-# Read sensitive account info from external file
+
+# Read sensitive bot account info from external file
 # accountinfo.txt should have username on the first line and OAuth string on the second
 with open("accountinfo.txt") as f:
     data = f.read()
@@ -25,6 +27,15 @@ f.closed
 lines = data.split("\n")
 NICK = lines[0]
 PASS = lines[1]
+print("Using account {}".format(NICK))
+
+
+# Get channel name from command line, or from cfg.py
+if len(sys.argv) > 1:
+    CHAN = sys.argv[1]
+else:
+    CHAN = cfg.CHAN
+print("Joining channel {}".format(CHAN))
 
 
 # Chat functions
@@ -57,14 +68,15 @@ def timeout(sock, user, secs=600):
     chat(sock, ".timeout {}".format(user, secs))
 
 
-# Socket stuff, join the Twitch IRC
+# Set up socket then join the Twitch channel's IRC
 s = socket.socket()
 s.connect((cfg.HOST, cfg.PORT))
 s.send("PASS {}\r\n".format(PASS).encode("utf-8"))
 s.send("NICK {}\r\n".format(NICK).encode("utf-8"))
 s.send("JOIN #{}\r\n".format(CHAN.lower()).encode("utf-8"))
 
-# Set up info for making HTTP requests
+
+# Info for making HTTP requests
 URL_CHANNEL = "https://api.twitch.tv/kraken/channels/{}".format(CHAN.lower())
 URL_STREAM = "https://api.twitch.tv/kraken/streams/{}".format(CHAN.lower())
 headers = {
@@ -72,24 +84,31 @@ headers = {
         "Accept": "application/wnd.twitchtv.v5+json"
         }
 
+
 # Stream timezone
-#TODO let user decide timezone
-#stream_tz = pytz.timezone("America/New_York")
+#TODO let user decide timezone, for now assume Pacific time
 stream_tz = "America/Vancouver"
-def convert_from_utc(utc_dt):
+#stream_tz = "America/New_York"
+def convert_from_utc(utc_dt, tz):
     """
     Convert a datetime from UTC to another timezone.
     Keyword arguments:
     utc_dt -- a datetime in UTC
+    tz     -- a string containing the name of the pytz timezone to convert to
     """
-    return utc_dt.astimezone(pytz.timezone(stream_tz)) 
+    return utc_dt.astimezone(pytz.timezone(tz)) 
+
 
 # Regex for matching chat messages
+# TODO match and parse extended Twitch tags
 CHAT_MSG = re.compile(r"^.*:\w+!\w+@\w+\.tmi\.twitch\.tv PRIVMSG #\w+ :")
 
-got_commands = False
+
+# Flag for receiving Tag capabilities from Twitch IRC
 got_tags = False
 
+
+# Main loop
 while True:
     response = s.recv(1024).decode("utf-8")
     print(response)
@@ -116,8 +135,7 @@ while True:
                 chat(s, "{} is currently offline.".format(CHAN))
             else:
                 starttime = iso8601.parse_date(j["stream"]["created_at"])
-                print(starttime)
-                localtime = convert_from_utc(starttime);
+                localtime = convert_from_utc(starttime, stream_tz);
                 # Send a nicely formatted start time to the chat. TODO user-defined timezone
                 chat(s, "This stream began at {}:{} (Pacific).".format(localtime.time().hour, str(localtime.time().minute).zfill(2)))
 
