@@ -102,6 +102,11 @@ def convert_from_utc(utc_dt, tz):
 # Regex for matching chat messages
 # TODO match and parse extended Twitch tags
 CHAT_MSG = re.compile(r"^.*:\w+!\w+@\w+\.tmi\.twitch\.tv PRIVMSG #\w+ :")
+REG_BADGES = re.compile(r"badges=(.*?);")
+REG_BITS = re.compile(r"bits=(.*?);")
+REG_DISPNAME = re.compile(r"display-name=(.*?);")
+REG_USERNAME = re.compile(r" :(\w+?)!")
+REG_USERTYPE = re.compile(r"user-type=(.*?) :")
 
 
 # Flag for receiving Tag capabilities from Twitch IRC
@@ -111,7 +116,7 @@ got_tags = False
 # Main loop
 while True:
     response = s.recv(1024).decode("utf-8")
-    print(response)
+    #print(response)
     if ":tmi.twitch.tv CAP * ACK :twitch.tv/tags" in response:
         got_tags = True
     elif not got_tags:
@@ -121,9 +126,33 @@ while True:
     if response == "PING :tmi.twitch.tv\r\n":
         s.send("PONG :tmi.twitch.tv\r\n".encode("utf-8"))
     else:
-        # Get username and message strings
-        username = re.search(r"\w+", response).group(0)
+        # Get username
+        dispname_match = REG_DISPNAME.search(response)
+        if dispname_match:
+            dispname = dispname_match.group(1)
+        else:
+            dispname = "NOBODY"
+
+        # Get usertype
+        mod = False
+        usertype_match = REG_USERTYPE.search(response)
+        if usertype_match:
+            usertype = usertype_match.group(1)
+            if usertype == "mod":
+                mod = True
+
+        broadcaster = False
+        username_match = REG_USERNAME.search(response)
+        if username_match:
+            username = username_match.group(1)
+            if username.lower() == CHAN:
+                broadcaster = True
+                print("(!) ", end='')
+
+
+
         message = CHAT_MSG.sub("", response)
+        print("{}: {}".format(dispname,message).strip())
 
         # Special command !uptime
         if re.match(r"!uptime", message):
@@ -135,9 +164,17 @@ while True:
                 chat(s, "{} is currently offline.".format(CHAN))
             else:
                 starttime = iso8601.parse_date(j["stream"]["created_at"])
-                localtime = convert_from_utc(starttime, stream_tz);
-                # Send a nicely formatted start time to the chat. TODO user-defined timezone
-                chat(s, "This stream began at {}:{} (Pacific).".format(localtime.time().hour, str(localtime.time().minute).zfill(2)))
+                nowtime = datetime.datetime.now(pytz.utc)
+                uptime = nowtime - starttime
+                uphours = int(uptime.seconds / (60*60))
+                upminutes = int(uptime.seconds / 60 % 60)
+                #localtime = convert_from_utc(starttime, stream_tz);
+                # TODO print total stream time rather than start time so who gives a shit about timezone
+                if uphours > 0:
+                    chat(s, "This stream has been live for {} hours and {} minutes.".format(uphours, upminutes))
+                else:
+                    chat(s, "This stream has been live for {} minutes.".format(upminutes))
+
 
         # Check for bot commands and response accordingly in the chat.
         for comm in list(cfg.COMMANDS.keys()):
