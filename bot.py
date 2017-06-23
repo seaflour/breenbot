@@ -38,6 +38,21 @@ else:
 print("Joining channel {}".format(CHAN))
 
 
+commands = {}
+# Open command file and read in commands and responses from {CHAN}.txt
+with open("{}.txt".format(CHAN.lower())) as f:
+    data = f.read()
+f.closed
+lines = data.split("\n")
+for l in lines[:-1]:
+    items = l.split("\t")
+    print("'{}'->'{}'".format(items[0],items[1]))
+    commands[items[0]] = items[1]
+
+sp_commands = ["!help", "!uptime"]
+
+
+
 # Chat functions
 def chat(sock, msg) :
     """
@@ -83,20 +98,6 @@ headers = {
         "Client-ID": "asadyq6bfn2skqs8gmrof5wpesq7qi", 
         "Accept": "application/wnd.twitchtv.v5+json"
         }
-
-
-# Stream timezone
-#TODO let user decide timezone, for now assume Pacific time
-stream_tz = "America/Vancouver"
-#stream_tz = "America/New_York"
-def convert_from_utc(utc_dt, tz):
-    """
-    Convert a datetime from UTC to another timezone.
-    Keyword arguments:
-    utc_dt -- a datetime in UTC
-    tz     -- a string containing the name of the pytz timezone to convert to
-    """
-    return utc_dt.astimezone(pytz.timezone(tz)) 
 
 
 # Regex for matching chat messages
@@ -154,8 +155,13 @@ while True:
         message = CHAT_MSG.sub("", response)
         print("{}: {}".format(dispname,message).strip())
 
+        # Special command !help
+        if re.match(r"!help", message):
+            l = ", ".join(sp_commands + list(commands))
+            chat(s,l)
+
         # Special command !uptime
-        if re.match(r"!uptime", message):
+        elif re.match(r"!uptime", message):
             # Request stream information from Kraken
             r = requests.get(URL_STREAM, headers=headers)
             j = r.json()
@@ -177,11 +183,11 @@ while True:
 
 
         # Check for bot commands and response accordingly in the chat.
-        for comm in list(cfg.COMMANDS.keys()):
-            if re.match(comm, message):
-                chat(s, cfg.COMMANDS[comm])
-                break
+        else:
+            for comm in list(commands.keys()):
+                if re.match(comm, message):
+                    chat(s, commands[comm])
+                    break
 
     # Slow your roll, we don't want to get banned
     time.sleep(1 / cfg.RATE)
-
