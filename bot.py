@@ -10,6 +10,7 @@ import iso8601
 import datetime
 import pytz
 import signal
+import random
 
 
 # SIGINT handler for graceful exit
@@ -38,7 +39,20 @@ else:
 print("Joining channel {}".format(CHAN))
 
 
+def read_commands_from_file(c):
+    c = {}
+    with open("{}.txt".format(CHAN.lower())) as f:
+        data = f.read()
+    f.closed
+    lines = data.split("\n")
+    for l in lines[:-1]:
+        items = l.split("\t")
+        print("'{}'->'{}'".format(items[0], items[1]))
+        c[items[0]] = items[1]
+
+
 commands = {}
+#read_commands_from_file(commands)
 # Open command file and read in commands and responses from {CHAN}.txt
 with open("{}.txt".format(CHAN.lower())) as f:
     data = f.read()
@@ -49,7 +63,6 @@ for l in lines[:-1]:
     print("'{}'->'{}'".format(items[0],items[1]))
     commands[items[0]] = items[1]
 
-sp_commands = ["!help", "!uptime"]
 
 
 
@@ -114,6 +127,49 @@ REG_USERTYPE = re.compile(r"user-type=(.*?) :")
 got_tags = False
 
 
+sp_commands = {}
+
+# Special Commands:
+def cmd_help():
+    """
+    Returns a string with all available commands
+    """
+    return ", ".join(list(sp_commands) + list(commands))
+def cmd_uptime():
+    """
+    Returns a string with the uptime of the channel's stream
+    """
+    # Request stream information from Kraken
+    r = requests.get(URL_STREAM, headers=headers)
+    j = r.json()
+    # Check if there is a live stream
+    if j['stream'] is None:
+        return "{} is currently offline.".format(CHAN)
+    else:
+        starttime = iso8601.parse_date(j["stream"]["created_at"])
+        nowtime = datetime.datetime.now(pytz.utc)
+        uptime = nowtime - starttime
+        uphours = int(uptime.seconds / (60*60))
+        upminutes = int(uptime.seconds / 60 % 60)
+        if uphours > 0:
+            return "This stream has been live for {} hours and {} minutes.".format(uphours, upminutes)
+        else:
+            return "This stream has been live for {} minutes.".format(upminutes)
+def cmd_rate():
+    """
+    Returns a random score out of ten
+    """
+    # stupid random weight
+    values = ['1', '2', '3', '4', '5', '5', '6', '6', '7', '8', '9', '10', 'Fun', 'Fun'] 
+    return "{}/10".format(random.choice(values))
+
+sp_commands = {
+        r"!help": cmd_help,
+        r"!uptime": cmd_uptime,
+        r"!rate": cmd_rate
+        }
+
+
 # Main loop
 while True:
     response = s.recv(1024).decode("utf-8")
@@ -142,6 +198,7 @@ while True:
             if usertype == "mod":
                 mod = True
 
+        # Determine if the user is the broadcaster
         broadcaster = False
         username_match = REG_USERNAME.search(response)
         if username_match:
@@ -155,37 +212,18 @@ while True:
         message = CHAT_MSG.sub("", response)
         print("{}: {}".format(dispname,message).strip())
 
-        # Special command !help
-        if re.match(r"!help", message):
-            l = ", ".join(sp_commands + list(commands))
-            chat(s,l)
+        flag = True
+        # Check for special commands and respond in the chat
+        for comm in list(sp_commands):
+            if re.search(comm, message) != None:
+                chat(s, sp_commands[comm]())
+                flag = False
+                break
 
-        # Special command !uptime
-        elif re.match(r"!uptime", message):
-            # Request stream information from Kraken
-            r = requests.get(URL_STREAM, headers=headers)
-            j = r.json()
-            # Check if there is a live stream
-            if j['stream'] is None:
-                chat(s, "{} is currently offline.".format(CHAN))
-            else:
-                starttime = iso8601.parse_date(j["stream"]["created_at"])
-                nowtime = datetime.datetime.now(pytz.utc)
-                uptime = nowtime - starttime
-                uphours = int(uptime.seconds / (60*60))
-                upminutes = int(uptime.seconds / 60 % 60)
-                #localtime = convert_from_utc(starttime, stream_tz);
-                # TODO print total stream time rather than start time so who gives a shit about timezone
-                if uphours > 0:
-                    chat(s, "This stream has been live for {} hours and {} minutes.".format(uphours, upminutes))
-                else:
-                    chat(s, "This stream has been live for {} minutes.".format(upminutes))
-
-
-        # Check for bot commands and response accordingly in the chat.
-        else:
-            for comm in list(commands.keys()):
-                if re.match(comm, message):
+        # Check for normal commands and response accordingly in the chat.
+        if flag:
+            for comm in list(commands):
+                if re.search(comm, message) != None:
                     chat(s, commands[comm])
                     break
 
